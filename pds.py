@@ -1,10 +1,12 @@
 from pyflink.datastream import StreamExecutionEnvironment
 from pyflink.datastream import SourceFunction
 
-
+import multiprocessing
 import argparse
 import logging
 import sys
+import asyncio
+import stream_loader
 
 from pyflink.common import WatermarkStrategy, Encoder, Types
 from pyflink.datastream import StreamExecutionEnvironment, RuntimeExecutionMode
@@ -142,5 +144,13 @@ if __name__ == "__main__":
 
     argv = sys.argv[1:]
     known_args, _ = parser.parse_known_args(argv)
+
+    # start stream download in background in another thread
+    # and continue with data processing
+    stream_loader.submit_async(stream_loader.streamDownload())
+
+    print("zavolal jsem stream loader")
+    while True:
+        pass
 
     word_count(known_args.input, known_args.output)

@@ -1,0 +1,28 @@
+{
+    "geometry": {
+        "x": 16.418514,
+        "y": 49.343048,
+        "spatialReference": {
+            "wkid": 4326
+        }
+    },
+    "attributes": {
+        "id": "21497",
+        "vtype": 4,
+        "ltype": 4,
+        "lat": 49.343048,
+        "lng": 16.418514,
+        "bearing": -1.0,
+        "lineid": 335,
+        "linename": "335",
+        "routeid": 35,
+        "course": "33501",
+        "lf": "false",
+        "delay": 0.0,
+        "laststopid": 13334,
+        "finalstopid": 13507,
+        "isinactive": "false",
+        "lastupdate": 1702500150319,
+        "globalid": "{51F9225B-8A9B-DAFE-A6E9-31AF1B8C8EB8}"
+    }
+}

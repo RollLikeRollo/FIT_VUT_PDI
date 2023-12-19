@@ -2,7 +2,6 @@ import asyncio
 import websockets
 import os
 import datetime
-import json
 import threading
 
 
@@ -26,11 +25,11 @@ def stop_async():
     _loop.call_soon_threadsafe(_loop.stop)
 
 
-async def handle_websocket_messages(uri):
+async def handle_websocket_messages(uri, path):
     async with websockets.connect(uri) as websocket:
         while True:
             message = await websocket.recv()
-            saveIncomingData(message)
+            saveIncomingData(message, path)
 
 
 def fileFriendlyTimeStamp():
@@ -45,19 +44,13 @@ def saveIncomingData(message, path="data"):
 
     tmstamp = fileFriendlyTimeStamp()
     filename = f"{path}/{tmstamp}.json"
-    print(f"Saving message to {filename}")
     with open(filename, "w") as f:
         f.write(message)
 
 
-async def streamDownload():
+async def streamDownload(path):
     # Specify the WebSocket URI
     websocket_uri = "wss://gis.brno.cz/geoevent/ws/services/ODAE_public_transit_stream/StreamServer/subscribe?outSR=4326"
 
     # Run the WebSocket handler in the background
-    await handle_websocket_messages(websocket_uri)
-
-
-if __name__ == "__main__":
-    # Run the main function
-    asyncio.run(streamDownload())
+    await handle_websocket_messages(websocket_uri, path)

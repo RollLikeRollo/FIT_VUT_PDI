@@ -1,0 +1,2 @@
+﻿agency_id,agency_name,agency_url,agency_timezone,agency_lang,agency_phone
+99,"IDS JMK (Data from: KORDIS JMK, DPMB)",http://www.idsjmk.cz,Europe/Prague,cs,"5 4317 4317"

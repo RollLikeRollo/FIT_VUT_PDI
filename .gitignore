@@ -1,3 +1,6 @@
 venv/
 data/
 __pycache__/
+*.zip
+testing_out/
+data*/

@@ -38,13 +38,16 @@ Aplikace spouští každou z úloh zvlášť, výběr úlohy je specifikován p�
 
   - doporučeno instalovat ve virtuálním prostředí
 
+- Java 1.8.x or higher installed, (https://nightlies.apache.org/flink/flink-docs-release-1.16/docs/deployment/resource-providers/standalone/overview/#starting-a-standalone-cluster-session-mode)
+- Downloaded a recent Flink distribution from the download page and unpacked it. (https://nightlies.apache.org/flink/flink-docs-release-1.16/docs/deployment/resource-providers/standalone/overview/#starting-a-standalone-cluster-session-mode)
+
 ## Lokální spouštění
 
 Jelikož `pyflink` nepodporuje načítání streamu pomocí `websockets` skrz něž je dostupný datový stream z `wss://gis.brno.cz/geoevent/ws/services/ODAE_public_transit_stream/StreamServer/subscribe?outSR=4326`, je nutné data streamu stahovat na lokální stroj. Pro lokální spouštění existují dva způsoby:
 
 ### 1. S automatickým stahováním streamu
 
-`python3 pdi.py -d <adresář pro ukládání streamu/z něhož bude program načítat stream>  -o <výstupní adresář> -a <číslo úlohy> -s`
+`python3 pdi.py -d <adresář pro ukládání streamu/z něhož bude program načítat stream>  -o <výstupní adresář> -a <číslo úlohy> -s`  
 např.:
 `python3 pdi.py -d /home/user/FIT_VUT_PDI_projekt/datadir  -o /home/user/FIT_VUT_PDI_projekt/pyflinkdataout -a 1 -s`
 
@@ -58,7 +61,7 @@ např.:
 
 poté je možné spustit samotné zpracování dat:
 
-`python3 pdi.py -d <adresář pro ukládání streamu/z něhož bude program načítat stream>  -o <výstupní adresář> -a <číslo úlohy>`
+`python3 pdi.py -d <adresář pro ukládání streamu/z něhož bude program načítat stream>  -o <výstupní adresář> -a <číslo úlohy>`  
 např.:
 `python3 pdi.py -d /home/user/FIT_VUT_PDI_projekt/datadir  -o /home/user/FIT_VUT_PDI_projekt/pyflinkdataout -a 1`
 
@@ -66,7 +69,7 @@ např.:
 
 Všechny úlohy kromě úlohy č. 3 produkují svůj výsledek (kontinuální výpis nebo výpis nějakého seznamu) jak na standardní výstup, tak také do souborů v adresáří specifikovaném přepínačem `-o`.
 
-Úloha č. 2 je specifická. Protože výsledný seznam vlaků je příliš dlouhý a velikost výstupních souborů by velmi ryhcle rostla, je výsledný seznam ukládán do jediného souboru, který je při každé aktualizaci výsledného streamu přepsán a existuje v něm tedy pouze nejnovější verze výstupu. Výstupní adresář je opět specifikován přepínačem `-o`. Kromě toho je seznam vypisován na standardní výstup.
+Úloha č. 2 je specifická. Protože výsledný seznam vlaků je příliš dlouhý a velikost výstupních souborů by velmi rychle rostla, je výsledný seznam ukládán do jediného souboru, který je při každé aktualizaci výsledného streamu přepsán a existuje v něm tedy pouze nejnovější verze výstupu. Výstupní adresář je opět specifikován přepínačem `-o`. Kromě toho je seznam vypisován na standardní výstup.
 
 ## Spouštění na clusteru
 

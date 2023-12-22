@@ -1,19 +1,7 @@
-import shutil
-from time import sleep
 import datetime
-import time
-from pyflink.datastream import StreamExecutionEnvironment
-from pyflink.datastream import SourceFunction
-
-import multiprocessing
 import argparse
 import logging
 import sys
-import asyncio
-import stream_loader
-
-# import stream_loader
-import os
 import json
 
 from pyflink.common.typeinfo import Types
@@ -26,62 +14,21 @@ from pyflink.datastream.connectors.file_system import (
     OutputFileConfig,
     RollingPolicy,
 )
-import json
 from pyflink.common import Configuration
 from pyflink.common import Row
-from pyflink.datastream.functions import KeyedProcessFunction
 from pyflink.datastream.execution_mode import RuntimeExecutionMode
-from pyflink.datastream.functions import SourceFunction
-from pyflink.datastream.state import MapStateDescriptor
-from pyflink.datastream.time_characteristic import TimeCharacteristic
-from pyflink.table import StreamTableEnvironment, EnvironmentSettings
-from pyflink.table import DataTypes
-from pyflink.table.descriptors import Schema, Rowtime
-from pyflink.datastream.window import (
-    Window,
-    SlidingEventTimeWindows,
-    SlidingProcessingTimeWindows,
-)
+from pyflink.datastream.window import SlidingProcessingTimeWindows
 from pyflink.common import Duration
-from pyflink.datastream.functions import MapFunction
-from pyflink.datastream.window import Window, TumblingEventTimeWindows
-from pyflink.datastream.state import MapStateDescriptor
-from pyflink.datastream.functions import MapFunction
-from pyflink.datastream.time_characteristic import TimeCharacteristic
 from pyflink.common.time import Time
-from pyflink.common import Row
-from pyflink.datastream.functions import KeyedProcessFunction
-from pyflink.datastream.state import MapStateDescriptor
-from pyflink.datastream.state import ListStateDescriptor
 from pyflink.datastream.time_characteristic import TimeCharacteristic
-from pyflink.common import Row
 from pyflink.datastream.functions import *
 from pyflink.datastream.state import ValueStateDescriptor
-from pyflink.common import Row
-from pyflink.common.typeinfo import Types
-from pyflink.common.serialization import SimpleStringSchema
 from pyflink.datastream.output_tag import OutputTag
 from pyflink.datastream.checkpointing_mode import CheckpointingMode
 from pyflink.datastream.checkpoint_config import ExternalizedCheckpointCleanup
-from pyflink.datastream.functions import ProcessFunction
-from pyflink.common import Row, WatermarkStrategy
-from pyflink.common.typeinfo import Types
+from pyflink.common import WatermarkStrategy
 from pyflink.common.watermark_strategy import TimestampAssigner
-from pyflink.datastream import StreamExecutionEnvironment
 from pyflink.datastream.functions import KeyedProcessFunction, RuntimeContext
-from pyflink.datastream.state import ValueStateDescriptor
-from pyflink.table import StreamTableEnvironment
-from pyflink.common import Row, WatermarkStrategy
-from pyflink.common.typeinfo import Types
-from pyflink.common.typeinfo import Types
-from pyflink.common.watermark_strategy import TimestampAssigner
-from pyflink.datastream import StreamExecutionEnvironment
-from pyflink.datastream.functions import KeyedProcessFunction, RuntimeContext
-from pyflink.datastream.state import ValueStateDescriptor
-from pyflink.table import StreamTableEnvironment
-from pyflink.datastream.connectors import file_system
-
-import translate_stops
 
 
 def dictFromJson(jsonString):
@@ -176,44 +123,83 @@ class AverageWindowFunction(ProcessWindowFunction):
         yield key, average
 
 
-class FiveMostDelayedTrainsThreeMinutes(ProcessWindowFunction):
-    def __init__(self) -> None:
-        self.top_delayed = []
+class ProcessAss4(ProcessAllWindowFunction):
+    def clear(self, ctx: "ProcessAllWindowFunction.Context"):
+        pass
 
-    def process(self, key: str, ctx: "ProcessWindowFunction.Context", values):
+    def process(self, context: ProcessAllWindowFunction.Context, values):
+        # print(
+        #     "evaluating window at: "
+        #     + " "
+        #     + datetime.datetime.now().isoformat()
+        # )
+
+        if not values:
+            return
+
+        count = 0
         for i in values:
-            # if new train ID, add it to the state
-            key = i["attributes"]["id"]
-            delay = i["attributes"]["delay"]
-            lastupdate = i["attributes"]["lastupdate"]
-            lastupdate = posixtime_to_datetime(lastupdate).strftime("%Y-%m-%d %H:%M:%S")
+            count += 1
 
-            rmvd = False
+        return [(count, self, context.window)]
 
-            for i in self.top_delayed:
-                dt_lastupdate = datetime.datetime.strptime(
-                    lastupdate, "%Y-%m-%d %H:%M:%S"
-                )
-                i_dt = datetime.datetime.strptime(i[2], "%Y-%m-%d %H:%M:%S")
-                if i_dt < dt_lastupdate - datetime.timedelta(minutes=3):
-                    self.top_delayed.remove(i)
-                    # rmvd = True
 
-            if len(self.top_delayed) < 5 and not rmvd:
-                self.top_delayed.append((key, delay, lastupdate))
-            else:
-                self.top_delayed.sort(key=lambda x: x[1])
-                keys = [x[0] for x in self.top_delayed]
-                if delay > self.top_delayed[0][1] and key not in keys:
-                    self.top_delayed[0] = (key, delay, lastupdate)
-                elif key in keys and delay > self.top_delayed[keys.index(key)][1]:
-                    index = keys.index(key)
-                    self.top_delayed[index] = (key, delay, lastupdate)
+class FiveMostDelayedTrainsThreeMinutes(FlatMapFunction):
+    delayed = []
+    delayed_top = []
+    changed = False
 
-        yield self.top_delayed
+    def flat_map(self, value):
+        i = value
+        # if new train ID, add it to the state
+        key = i["attributes"]["id"]
+        delay = i["attributes"]["delay"]
+        lastupdate = i["attributes"]["lastupdate"]
+        lastupdate = datetime.datetime.fromtimestamp(int(lastupdate) / 1000)
+
+        delayed = self.delayed
+
+        # remove trains that are not in the last 3 minutes
+        delayed = [
+            x for x in delayed if x[2] >= (lastupdate - datetime.timedelta(minutes=3))
+        ]
+
+        keys = [x[0] for x in delayed]
+        if key not in keys:
+            delayed.append((key, delay, lastupdate))
+        else:
+            index = keys.index(key)
+            delayed[index] = (key, delay, lastupdate)
+
+        delayed.sort(key=lambda x: x[2], reverse=True)
+
+        delayed_top = delayed[:5]
+
+        # if no change in the top 5, do not yield
+        chng = False
+        for i in range(5):
+            if (
+                len(self.delayed_top) < 5
+                or delayed_top[i][0] != self.delayed_top[i][0]
+                or delayed_top[i][1] != self.delayed_top[i][1]
+            ):
+                chng = True
+                break
+
+        self.delayed = delayed
+        self.delayed_top = delayed_top
+
+        delayed_top_iso = [(x[0], x[1], x[2].isoformat()) for x in self.delayed_top]
+
+        if chng:
+            yield delayed_top_iso
+        else:
+            pass
 
 
 class FiveMostDelayedTrains(FlatMapFunction):
+    count = 0
+
     def __init__(self) -> None:
         self.top_delayed = []
 
@@ -221,31 +207,43 @@ class FiveMostDelayedTrains(FlatMapFunction):
         # if new train ID, add it to the state
         key = value["attributes"]["id"]
         delay = value["attributes"]["delay"]
+        last_change = value["attributes"]["lastupdate"]
+
+        changed = False
 
         if len(self.top_delayed) < 5:
-            self.top_delayed.append((key, delay))
+            self.top_delayed.append((key, delay, last_change))
+            changed = True
         else:
             self.top_delayed.sort(key=lambda x: x[1])
             keys = [x[0] for x in self.top_delayed]
             if delay > self.top_delayed[0][1] and key not in keys:
-                self.top_delayed[0] = (key, delay)
-            elif key in keys and delay > self.top_delayed[keys.index(key)][1]:
-                index = keys.index(key)
-                self.top_delayed[index] = (key, delay)
+                self.top_delayed[0] = (key, delay, last_change)
+                changed = True
+            elif key in keys:  # and delay > self.top_delayed[keys.index(key)][1]:
+                if last_change > self.top_delayed[keys.index(key)][2]:
+                    index = keys.index(key)
+                    self.top_delayed[index] = (key, delay, last_change)
+                    changed = True
 
+        self.top_delayed.sort(key=lambda x: x[1], reverse=True)
+
+        FiveMostDelayedTrains.count += 1
+
+        # if changed or FiveMostDelayedTrains.count % 10 == 0:
+        # if changed:
         yield self.top_delayed
 
 
 class TrainDict(KeyedProcessFunction):
-    def __init__(self) -> None:
-        self.train_dict = dict()
+    train_dict = dict()
 
     def process_element(self, line, ctx: "KeyedProcessFunction.Context"):
         train_id = line["attributes"]["id"]
         last_stop = line["attributes"]["laststopid"]
         last_update = line["attributes"]["lastupdate"]
 
-        if train_id not in self.train_dict:
+        if train_id not in self.train_dict.keys():
             self.train_dict[train_id] = {
                 "last_stop": last_stop,
                 "last_update": last_update,
@@ -271,9 +269,6 @@ class saveToFile(KeyedProcessFunction):
         self.timeformat = timeformat
         self.translate = False
         self.dir = directory_path
-        if translate:
-            self.translate = True
-            self.map = translate_stops.stop().map
 
     def process_element(self, value, ctx: KeyedProcessFunction.Context):
         # if the state did not change, do not write to file
@@ -304,45 +299,77 @@ class MyTimestampAssigner(TimestampAssigner):
         return value["attributes"]["lastupdate"]
 
 
-def sourceDefine(input_path, env: StreamExecutionEnvironment, mode="stream"):
+class MyTimestampAssignerTimeJava(TimestampAssigner):
+    def extract_timestamp(self, value, record_timestamp):
+        val = value["attributes"]["lastupdate"]
+        t_val = val
+        return t_val
+
+
+class MyTimestampAssignerTuple(TimestampAssigner):
+    def extract_timestamp(self, value, record_timestamp):
+        return value[1]["attributes"]["lastupdate"]
+
+
+def sourceDefine(
+    input_path,
+    env: StreamExecutionEnvironment,
+    mode="stream",
+    testing=False,
+    testing_data=None,
+):
     if input_path is None:
         print("Executing word_count example with default input data set.")
         print("Use --input to specify file input.")
         env.close()
         return
     print(f"Defining source for {input_path}, mode: {mode}")
-    if mode == "bulk":
-        ds = env.from_source(
-            source=FileSource.for_bulk_file_format(
-                bulk_format=StreamFormat.text_line_format(), path=input_path
+    if not testing or testing:
+        if mode == "bulk" or mode == "batch":
+            ds = env.from_source(
+                source=FileSource.for_record_stream_format(
+                    StreamFormat.text_line_format(), input_path
+                )
+                .process_static_file_set()
+                .build(),
+                watermark_strategy=WatermarkStrategy.for_monotonous_timestamps(),
+                source_name="file_source",
             )
-        )
-    elif mode == "stream":
-        ds = env.from_source(
-            source=FileSource.for_record_stream_format(
-                StreamFormat.text_line_format(), input_path
+        elif mode == "stream":
+            ds = env.from_source(
+                source=FileSource.for_record_stream_format(
+                    StreamFormat.text_line_format(), input_path
+                )
+                .monitor_continuously(Duration.of_seconds(5))
+                .build(),
+                watermark_strategy=WatermarkStrategy.for_monotonous_timestamps(),
+                source_name="file_source",
             )
-            .monitor_continuously(Duration.of_seconds(5))
-            .build(),
-            watermark_strategy=WatermarkStrategy.for_monotonous_timestamps(),
-            source_name="file_source",
-        )
+        else:
+            print("Unknown mode")
+            env.close()
+            return
     else:
-        print("Unknown mode")
-        env.close()
-        return
+        # print("Testing mode, using data from " + testing_data)
+        # ds = env.from_collection(testing_data)
+        pass
     return ds
 
 
 # # # ----------------------------------------------------------------------------------------------------------------
 
 
-def Process(input_path, assignment, output_path):
+def Process(input_path, assignment, output_path, testing=False, testing_data=None):
     config = Configuration()
     config.set_string("python.client.executable", "~/.pyenv/shims/python3")
 
     env = StreamExecutionEnvironment.get_execution_environment()
-    env.set_runtime_mode(RuntimeExecutionMode.STREAMING)  # BATCH predtim
+    if testing:
+        print("Testing mode")
+        env.set_runtime_mode(RuntimeExecutionMode.BATCH)  # BATCH predtim
+    else:
+        print("Streaming mode")
+        env.set_runtime_mode(RuntimeExecutionMode.STREAMING)
     # write all the data to one file
     env.set_parallelism(1)
     env.set_stream_time_characteristic(TimeCharacteristic.EventTime)
@@ -382,7 +409,12 @@ def Process(input_path, assignment, output_path):
     )
 
     # define the source
-    ds = sourceDefine(input_path, env, mode="stream")
+    mode = "stream"
+    if testing:
+        mode = "bulk"
+    ds = sourceDefine(
+        input_path, env, testing=testing, testing_data=testing_data, mode=mode
+    )
 
     # define the transformation
     # output is always first 10 words
@@ -398,6 +430,8 @@ def Process(input_path, assignment, output_path):
     # # # Assignement 1 - průběžně vypisovat vozidla mířící na sever (s max. odchylkou ± 45 stupnů)
 
     if assignment == "1":
+        print("Assignement 1 run:")
+
         # select only those vehicles that are heading north (+- 45 degrees)
         ds_north = ds.filter(
             lambda line: (
@@ -437,6 +471,8 @@ def Process(input_path, assignment, output_path):
             .build()
         )
         ds_north.print()
+
+        env.close()
 
     # ----------------------------------------------------------------------------------------------------------------
     # # # Assignement 2 - vypisovat seznam vlaků s ID (či názvem) jejich poslední hlášené zastávky
@@ -503,9 +539,7 @@ def Process(input_path, assignment, output_path):
         ds_delay = ds.filter(lambda line: line["attributes"]["delay"] > 0.0)
 
         # filter 5 most delayed trains
-        ds_delay2 = ds_delay.key_by(lambda line: line["attributes"]["id"]).flat_map(
-            FiveMostDelayedTrains()
-        )
+        ds_delay2 = ds_delay.flat_map(FiveMostDelayedTrains())
 
         ds_delay2.print()
 
@@ -536,29 +570,16 @@ def Process(input_path, assignment, output_path):
 
     # ----------------------------------------------------------------------------------------------------------------
     # # # Assignement 4 - vypisovat seznam nejvýše 5 zpožděných vozů hlášených během
-    # posledních 3 minut a seřazených setupně podle času jejich poslední aktualizace
+    # posledních 3 minut a seřazených sestupně podle času jejich poslední aktualizace
 
     if assignment == "4":
-        watermark_strategy = WatermarkStrategy.for_bounded_out_of_orderness(
-            Duration.of_seconds(10)
-        ).with_timestamp_assigner(MyTimestampAssigner())
+        # filter out not delayed trains
+        ds4 = ds.filter(lambda line: line["attributes"]["delay"] > 0.0)
 
-        ds_w_timestamp_watermarks = ds.assign_timestamps_and_watermarks(
-            watermark_strategy
-        )
+        # window functions throw an error every time
+        ds4_new = ds4.flat_map(FiveMostDelayedTrainsThreeMinutes())
 
-
-        ds4 = (
-            ds_w_timestamp_watermarks.key_by(lambda line: line["attributes"]["id"])
-            .window(
-                SlidingProcessingTimeWindows.of(Time.minutes(3), Time.seconds(10))
-            )  # minutes 3
-            .process(FiveMostDelayedTrainsThreeMinutes())
-        )
-
-        ds4 = ds4.map(lambda line: sorted(line, key=lambda x: x[1], reverse=True)[:5])
-
-        ds4.print()
+        ds4_new.print()
 
         ds4 = ds4.map(
             lambda line: json.dumps(line),
@@ -747,25 +768,38 @@ if __name__ == "__main__":
             " Body 2 - 6 - vypisuje do souboru, ktery se neustale prepisuje"
         ),
     )
+    parser.add_argument(
+        "-t",
+        "--testing",
+        dest="t",
+        required=False,
+        default=False,
+        action="store_true",
+        help="Whether to run the script in testing mode.",
+    )
 
     argv = sys.argv[1:]
     known_args, _ = parser.parse_known_args(argv)
 
-    # known_args.assignment = "1"
-    # known_args.input = (
-    #     "/home/jzboril/Documents/VUT/mit/2mit_zimni_s/pdi/FIT_VUT_PDI_projekt/data"
-    # )
-
-    # shutil.rmtree(known_args.p, ignore_errors=True)
-
-    # start stream download in background in another thread
     # and continue with data processing
     if known_args.s:
+        import stream_loader
+
         print("Creating stream loader")
         stream_loader.submit_async(stream_loader.streamDownload(known_args.d))
+    # else:
 
-    # print("sleeping for 10 seconds until the stream loader downloads some data")  # TODO
-    # sleep(10)
+    testing = False
+    testing_data = None
+    if known_args.t:
+        testing = True
+        testing_data = known_args.d
 
     print("Starting the computation")
-    Process(known_args.d, known_args.assignment, known_args.output)
+    Process(
+        known_args.d,
+        known_args.assignment,
+        known_args.output,
+        testing=testing,
+        testing_data=testing_data,
+    )
